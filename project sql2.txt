@@ -1,0 +1,182 @@
+-- Q1
+--
+
+
+select t1.ProductID,
+       t1.[Name], 
+       t1.Color, 
+       t1.ListPrice, 
+       t1.Size
+from Production.Product t1
+left join Sales.SalesOrderDetail t2
+on t1.ProductID = t2.ProductID
+where t2.ProductID is null
+order by t1.ProductID
+
+--Q2
+--
+
+
+select t1.CustomerID, 
+		case 
+			when t3.LastName IS NULL then 'Unknown'
+			else t3.LastName
+			end 'LastName',
+		case 
+			when t3.FirstName IS NULL then 'Unknown'
+			else t3.FirstName
+			end 'FirstName'
+from Sales.Customer t1
+left join Sales.SalesOrderHeader t2
+on t1.CustomerID = t2.CustomerID
+left join Person.Person t3
+on t1.CustomerID = t3.BusinessEntityID
+where t2.CustomerID is null
+order by CustomerID asc
+
+
+--Q3
+--
+
+
+select top 10* from
+      (select t1.CustomerID, t2.FirstName, t2.LastName, count(t3.SalesOrderID) 'CountOfOrders'
+       from Sales.Customer t1
+       left join Person.Person t2
+       on t1.PersonID = t2.BusinessEntityID
+       left join Sales.SalesOrderHeader t3
+       on t1.CustomerID = t3.CustomerID
+       group by t1.CustomerID, t2.FirstName, t2.LastName) t0
+order by CountOfOrders desc, CustomerID
+
+
+--Q4 
+--
+
+
+select t2.FirstName,
+       t2.LastName,
+	   t1.JobTitle,
+	   t1.HireDate, 
+	   count(t1.JobTitle) over(partition by JobTitle order by JobTitle) 'CountOfTitle'
+from HumanResources.Employee t1
+left join Person.Person t2
+on t1.BusinessEntityID = t2.BusinessEntityID
+
+--Q5 
+--
+
+
+select SalesOrderID,
+       CustomerID,
+	   LastName,
+	   FirstName,
+	   OrderDate,
+	   lagging
+from    (select SalesOrderID, t2.CustomerID, OrderDate,
+		RANK() over(partition by t2.CustomerID order by OrderDate desc) RNK,
+		LAG(OrderDate) over(partition by t2.CustomerID order by SalesOrderID)
+		lagging,
+		LastName,
+		FirstName
+from Sales.SalesOrderHeader t1
+join Sales.Customer t2
+on t1.CustomerID = t2.CustomerID
+join Person.Person t3
+on t2.PersonID = t3.BusinessEntityID) t0
+where RNK=1
+order by CustomerID
+
+--Q6
+--
+
+
+select Year,
+       SalesOrderID,
+	   LastName,
+	   FirstName, 
+	   format(max(SubTotal) over(partition by Year order by SubTotal desc), '#,#.#') 'Total'
+from
+        (select YEAR(t2.OrderDate) 'Year', t1.SalesOrderID, t3.FirstName, t3.LastName , t4.CustomerID,
+		sum((UnitPrice*(1-UnitPriceDiscount)*OrderQty)) 'SubTotal',
+		ROW_NUMBER() over(partition by YEAR(t2.OrderDate) order by YEAR(t2.OrderDate)) RN
+from Sales.SalesOrderDetail t1
+join Sales.SalesOrderHeader t2
+on t1.SalesOrderID = t2.SalesOrderID
+join Sales.Customer t4
+on t2.CustomerID = t4.CustomerID
+join Person.Person t3
+on t4.PersonID = t3.BusinessEntityID
+group by YEAR(t2.OrderDate), t4.CustomerID, t1.SalesOrderID, t3.FirstName, t3.LastName) t0 
+where RN = 1
+
+
+--Q7
+--
+
+
+select Month, isnull("2011", 0) '2011', "2012", "2013", isnull("2014", 0) '2014'
+from
+   (select year(OrderDate) 'Year', MONTH(OrderDate) 'Month', count(SalesOrderID) 'Total'
+   from Sales.SalesOrderHeader
+   group by year(OrderDate), MONTH(OrderDate) )src
+   pivot (sum(Total) for Year in("2011", "2012", "2013", "2014")) pvt
+
+
+--Q8 
+--
+
+
+select  YEAR(t2.OrderDate) 'Year', cast(MONTH(T2.OrderDate) AS VARCHAR(20)) 'Month', ROUND(SUM(UnitPrice), 2) 'Sum_Price',
+		ROUND(SUM(SUM(UnitPrice)) over (partition by YEAR(t2.OrderDate) order by cast(MONTH(T2.OrderDate) as int)), 2) 'CumSum',
+		ROW_NUMBER() over(partition by YEAR(t2.OrderDate) order by cast(MONTH(T2.OrderDate) as int)) RN
+from Sales.SalesOrderDetail t1
+join Sales.SalesOrderHeader t2
+on t1.SalesOrderID = t2.SalesOrderID
+group by YEAR(t2.OrderDate), cast(MONTH(T2.OrderDate) as int)
+UNION
+select YEAR(t2.OrderDate) 'Year', 'Grand_Total:', null, ROUND(SUM(UnitPrice), 2), 13
+from Sales.SalesOrderDetail t1
+join Sales.SalesOrderHeader t2
+on t1.SalesOrderID = t2.SalesOrderID
+GROUP BY YEAR(t2.OrderDate)
+order by Year, RN
+
+
+--Q9
+--
+
+
+select t0.*,
+		DATEDIFF(DD, PreviousEmpHDate, HireDate) 'DiffDays'
+from
+(select t3. name 'DepartmentName', t1.BusinessEntityID [Employee'sID], t4.FirstName + ' ' + t4.LastName [Employee'sFullName],
+			t1.HireDate, DATEDIFF(MM, HireDate, GETDATE()) 'Seniority',
+			LEAD(t4.FirstName + ' ' + t4.LastName) over(partition by t3. name order by t1.HireDate desc) 'PreviousEmpName',
+			LEAD(HireDate) over(partition by t3. name order by t1.HireDate desc) 'PreviousEmpHDate'
+from HumanResources.Employee t1
+left join HumanResources.EmployeeDepartmentHistory t2
+on t1.BusinessEntityID = t2. BusinessEntityID
+left join HumanResources.Department t3
+on t2.DepartmentID = t3.DepartmentID
+left join Person.Person t4
+on t1.BusinessEntityID = t4.BusinessEntityID) t0
+order by DepartmentName, HireDate desc
+
+
+--Q10 
+--
+
+
+select HireDate, DepartmentID,
+		STRING_AGG([Employee'sInfo] , ', ') as 'TeamEmployees'
+from 
+(select t1.HireDate, t2.DepartmentID, (cast(t1.BusinessEntityID as nvarchar) + ' ' + t4.LastName + ' ' + t4.FirstName) [Employee'sInfo], EndDate
+from HumanResources.Employee t1
+left join HumanResources.EmployeeDepartmentHistory t2
+on t1.BusinessEntityID = t2. BusinessEntityID
+left join Person.Person t4
+on t1.BusinessEntityID = t4.BusinessEntityID
+where EndDate is null) t0
+group by HireDate, DepartmentID
+order by HireDate desc
